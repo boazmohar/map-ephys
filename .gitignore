@@ -107,3 +107,5 @@ dj_local_conf.json
 **/*~
 **/#*#
 **/.#*
+
+\.idea/

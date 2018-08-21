@@ -6,15 +6,16 @@ schema = dj.schema('boazmohar_imaging')
 from . import lab
 from . import experiment
 
+
 @schema
-class Objective(dj.Manual):
+class Objective(dj.Lookup):
     definition = """
     objective : varchar(24) 
     ----
-    objective_descriotion : varchar(255)
+    objective_description : varchar(255)
     """
-    contents = (('4x','Nikon 4x 0.3NA','16x','Olympus 16x 0.8NA',
-                 '20x', 'Olympus 20x 1.05NA'))
+    contents = (('4x','Nikon 4x 0.3NA'), ('16x','Olympus 16x 0.8NA'),
+                ('20x', 'Olympus 20x 1.05NA'))
     
 @schema
 class Fluorophore(dj.Lookup):
@@ -29,19 +30,7 @@ class Fluorophore(dj.Lookup):
         ['JF525Halo', 'Janelia Flour 525 with halo tag'],
         ['JF585Halo', 'Janelia Flour 585 with halo tag']
     ]
-    
-@schema
-class FOV(dj.Lookup):
-    definition = """  # field-of-view sizes for all lenses and magnifications
-    -> lab.Rig
-    -> Objective
-    mag         : decimal(5,2)  # ScanImage zoom factor
-    fov_id      : smallint      # fov measurement date and time
-    ---
-    fov_date = CURRENT_TIMESTAMP    : datetime  # When the FOV was recorded
-    pitch = null: decimal(5,2) # angle of the animal in AP axis
-    roll = null : decimal(5,2) # angle of the animal in ML axis
-    """
+
 
 @schema
 class Anesthesia(dj.Lookup):
@@ -62,7 +51,7 @@ class Compartment(dj.Lookup):
     compartment         : char(16)
     ---
     """
-    contents = [['axon'], ['soma'], ['dendrtie']]
+    contents = [['axon'], ['soma'], ['dendrite']]
     
 
 @schema
@@ -95,3 +84,135 @@ class PMTFilterSet(dj.Lookup):
             ['2P3 blue-green A', 1, 'blue', 'AC7438 Thor', 475, 50, ''],
             ['2P3 blue-green A', 2, 'green', 'AC7753 Thor', 540, 50, '']
         ]
+
+
+@schema
+class FOV(dj.Lookup):
+    definition = """  # field-of-view 
+    -> lab.Subject
+    fov_id      : smallint      # 
+    ---
+    -> Objective
+    mag         : decimal(5,2)  # ScanImage zoom factor
+    fov_date = CURRENT_TIMESTAMP    : datetime  # fov measurement date and time
+    pitch = null: decimal(5,2) # angle of the animal in AP axis
+    roll = null : decimal(5,2) # angle of the animal in ML axis
+    fov_note = ''  : varchar(2048) # notes about this FOV
+    """
+
+
+@schema
+class Path(dj.Manual):
+    definition = """ # base paths to data from different operating systems
+    path_name   : varchar(24)
+    ---
+    path_linux   : varchar(1024)
+    path_mac   : varchar(1024)
+    path_windows   : varchar(1024)
+    """
+
+
+@schema
+class Run(dj.Manual):
+    definition = """  # imaging session
+    -> experiment.Session
+    -> FOV
+    ---
+    run_id                        : smallint
+    -> Anesthesia
+    -> Path                                             # base path to files
+    session_notes=""              : varchar(4095)       # free-text notes
+    session_ts=CURRENT_TIMESTAMP  : timestamp           # automatic
+    """
+
+    class Fluorophore(dj.Part):
+        definition = """  # fluorophores expressed in prep for the imaging session
+        -> Run
+        -> Fluorophore
+        ---
+        notes=""        : varchar(255)  # additional information about fluorophore in this scan
+        """
+
+    class TargetStructure(dj.Part):
+        definition = """  # specifies which neuronal structure was imaged
+        -> Run
+        -> Compartment
+        ---
+        """
+
+    class PMTFilterSet(dj.Part):
+        definition = """
+        -> Run
+        ---
+        -> PMTFilterSet
+        """
+
+    class Laser(dj.Part):
+        definition = """  # laser parameters for the scan
+        -> Run
+        ---
+        wavelength          : float                         # (nm)
+        power               : float                         # (mW) to brain
+        gdd                 : float                         # gdd setting
+        """
+
+
+# class HasFilename:
+#     """ Mixin to add local_filenames_as_wildcard property to Scan and Stack. """
+#     @property
+#     def local_filenames_as_wildcard(self):
+#         """Returns the local filename for all parts of this scan (ends in *.tif)."""
+#         scan_path = (Session() & self).fetch1('scan_path')
+#         local_path = lab.Paths().get_local_path(scan_path)
+#
+#         scan_name = (self.__class__() & self.proj()).fetch1('filename')
+#         local_filename = os.path.join(local_path, scan_name) + '*.tif'  # all parts
+#
+#         return local_filename
+
+
+@schema
+class ImagingTrial(dj.Imported):
+    definition = """    # scanimage scan info
+    -> Run
+    -> experiment.SessionTrial      : smallint      # run number link to experiment
+    ---
+    filename                        : varchar(128)  # tiff stack file name
+    n_timepoints                    : int           # number of timepoints
+    """
+
+    def make(self, key):
+        pass
+
+# @schema
+# class Stack(dj.Manual):
+#     definition = """ # structural stack information
+#     -> ImagingSession
+#     stack_idx               : smallint              # id of the stack
+#     ---
+#     -> Objective
+#     -> Aim
+#     surf_depth=0            : smallint              # (um) depth of the surface of the cortex
+#     top_depth               : smallint              # (um) depth at top of the stack
+#     bottom_depth            : smallint              # (um) depth at bottom of stack
+#     stack_notes             : varchar(4095)         # free notes
+#     stack_ts=CURRENT_TIMESTAMP : timestamp          # don't edit
+#     """
+#
+#     class Filename(dj.Part, HasFilename):
+#         definition = """ # filenames that compose one stack (used in resonant and 3p scans)
+#         -> Stack
+#         filename_idx        : tinyint               # id of the file
+#         ---
+#         filename            : varchar(255)          # file base name
+#         surf_depth=0        : float                 # ScanImage's z at cortex surface
+#         """
+#
+#     class Laser(dj.Part):
+#         definition = """  # laser parameters for the stack
+#         -> Stack
+#         ---
+#         wavelength          : int                   # (nm)
+#         max_power           : float                 # (mW) to brain
+#         gdd                 : float                 # gdd setting
+#         """
